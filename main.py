@@ -1,11 +1,13 @@
 """
-SUWEB 2.0 트레이딩뷰 웹훅 → 텔레그램 채널 자동 발송 서버
+슈엡 X 비트코인 시그널 2.0
+트레이딩뷰 웹훅 → 텔레그램 채널 자동 발송 서버
 """
 from flask import Flask, request, jsonify
 import requests
 import json
 import logging
 from datetime import datetime
+import pytz
 import os
 
 # ===== 설정 =====
@@ -13,11 +15,15 @@ BOT_TOKEN  = os.environ.get("BOT_TOKEN",  "8257197393:AAGmbYncgT0eGNQ-4vX7dI8A2E
 CHANNEL_ID = os.environ.get("CHANNEL_ID", "-1003953608688")
 SECRET_KEY = os.environ.get("SECRET_KEY", "suweb2024")
 PORT       = int(os.environ.get("PORT", 5000))
+KST        = pytz.timezone("Asia/Seoul")
 # ================
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
+
+def now_kst():
+    return datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
 
 def send_telegram(msg: str) -> bool:
     url  = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -38,7 +44,7 @@ def send_telegram(msg: str) -> bool:
         log.error(f"텔레그램 발송 오류: {e}")
         return False
 
-@app.route(f"/webhook/<key>", methods=["POST"])
+@app.route("/webhook/<key>", methods=["POST"])
 def webhook(key):
     if key != SECRET_KEY:
         log.warning(f"잘못된 시크릿 키: {key}")
@@ -63,20 +69,21 @@ def webhook(key):
 def health():
     return jsonify({
         "status": "running",
-        "time":   datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "time":   now_kst() + " (KST)",
     }), 200
 
 @app.route("/test", methods=["GET"])
 def test():
     msg = (
-        "✅ 슈엡 X 비트코인 시그널 2.0 웹훅 서버 연결 테스트\n"
+        "✅ 슈엡 X 비트코인 시그널 2.0\n"
         "━━━━━━━━━━━━━━━━\n"
-        f"서버 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        "웹훅 서버 연결 테스트\n"
+        f"서버 시간: {now_kst()} (KST)\n"
         "상태: 정상 작동 중 🟢"
     )
     success = send_telegram(msg)
     return (jsonify({"status": "ok", "message": "테스트 발송 완료"}), 200) if success else (jsonify({"status": "error"}), 500)
 
 if __name__ == "__main__":
-    log.info(f"SUWEB 2.0 웹훅 서버 시작 — 포트: {PORT}")
+    log.info(f"슈엡 X 비트코인 시그널 2.0 웹훅 서버 시작 — 포트: {PORT}")
     app.run(host="0.0.0.0", port=PORT, debug=False)
