@@ -69,7 +69,7 @@ def health():
 @app.route("/test", methods=["GET"])
 def test():
     msg = (
-        "✅ SUWEB 2.0 웹훅 서버 연결 테스트\n"
+        "✅ 슈엡 X 비트코인 시그널 2.0 웹훅 서버 연결 테스트\n"
         "━━━━━━━━━━━━━━━━\n"
         f"서버 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
         "상태: 정상 작동 중 🟢"
