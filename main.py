@@ -112,12 +112,12 @@ def get_funding_rate():
         return "💰 펀딩비: 조회 실패"
 
 # ==========================================
-# 4. BTC 도미넌스 (CoinGecko 무료)
+# 4. BTC 도미넌스
 # ==========================================
 def get_dominance():
     try:
-        r   = requests.get("https://api.coingecko.com/api/v3/global", timeout=10)
-        dom = r.json()["data"]["market_cap_percentage"]["btc"]
+        r   = requests.get("https://api.coinlore.net/api/global/", timeout=10)
+        dom = float(r.json()[0]["btc_d"])
         if dom >= 60:
             hint = "→ 알트 약세 구간"
         elif dom >= 55:
