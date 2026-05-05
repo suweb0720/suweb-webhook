@@ -1,8 +1,6 @@
 """
 슈엡 X 비트코인 시그널 2.0
 텔레그램 채널 자동 정보 발송 서버
-- 매일 오전 9시 KST: 일일 시황 리포트
-- 8시간마다: 펀딩비 극단적일 때만 경고
 """
 from flask import Flask, request, jsonify
 import requests
@@ -63,7 +61,7 @@ def get_btc_price():
         return "💰 BTC 시세: 조회 실패"
 
 # ==========================================
-# 2. 공포탐욕 지수 (alternative.me 무료)
+# 2. 공포탐욕 지수 (alternative.me)
 # ==========================================
 def get_fear_greed():
     try:
@@ -112,7 +110,7 @@ def get_funding_rate():
         return "💰 펀딩비: 조회 실패"
 
 # ==========================================
-# 4. BTC 도미넌스
+# 4. BTC 도미넌스 (CoinLore)
 # ==========================================
 def get_dominance():
     try:
@@ -131,39 +129,74 @@ def get_dominance():
         return "👑 BTC 도미넌스: 조회 실패"
 
 # ==========================================
-# 5. 미국 시장 (Yahoo Finance)
+# 5. 하이퍼리퀴드 상위 100명 롱/숏 비율
 # ==========================================
-def get_market_index():
+def get_hl_whale_ratio():
     try:
-        symbols = {"^GSPC": "S&P500", "^IXIC": "나스닥", "^VIX": "VIX"}
-        results = []
-        for sym, name in symbols.items():
-            r = requests.get(
-                f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?interval=1d&range=2d",
-                headers={"User-Agent": "Mozilla/5.0"},
-                timeout=10
-            )
-            data   = r.json()["chart"]["result"][0]
-            closes = data["indicators"]["quote"][0]["close"]
-            closes = [c for c in closes if c is not None]
-            if len(closes) >= 2:
-                prev  = closes[-2]
-                curr  = closes[-1]
-                chg   = (curr - prev) / prev * 100
-                sign  = "+" if chg >= 0 else ""
-                arrow = "📈" if chg >= 0 else "📉"
-                results.append(f"   {arrow} {name}: {curr:,.2f}  ({sign}{chg:.2f}%)")
-        return "🌍 <b>미국 시장</b>\n" + "\n".join(results)
+        # 하이퍼리퀴드 리더보드 상위 100명 가져오기
+        url  = "https://api.hyperliquid.xyz/info"
+        body = {"type": "leaderboard"}
+        r    = requests.post(url, json=body, timeout=15)
+        data = r.json()
+
+        # 상위 100명 추출
+        rows = data.get("leaderboardRows", [])[:100]
+
+        long_count  = 0
+        short_count = 0
+        long_value  = 0.0
+        short_value = 0.0
+
+        for row in rows:
+            positions = row.get("positions", [])
+            for pos in positions:
+                coin = pos.get("coin", "")
+                if coin != "BTC":
+                    continue
+                szi = float(pos.get("szi", 0))
+                px  = float(pos.get("entryPx", 0))
+                val = abs(szi * px)
+                if szi > 0:
+                    long_count  += 1
+                    long_value  += val
+                elif szi < 0:
+                    short_count += 1
+                    short_value += val
+
+        total = long_count + short_count
+        if total == 0:
+            return "🐋 <b>HL 고래 BTC 포지션</b>: 데이터 없음"
+
+        long_pct  = long_count  / total * 100
+        short_pct = short_count / total * 100
+        total_val = long_value + short_value
+
+        if long_pct >= 65:
+            sentiment = "🔴 롱 쏠림 — 역추세 주의"
+        elif long_pct >= 55:
+            sentiment = "🟠 롱 우세 — 추세 확인 필요"
+        elif short_pct >= 65:
+            sentiment = "🔵 숏 쏠림 — 역추세 주의"
+        elif short_pct >= 55:
+            sentiment = "🟢 숏 우세 — 추세 확인 필요"
+        else:
+            sentiment = "🟡 균형 — 방향성 불명확"
+
+        return (f"🐋 <b>HL 상위 100명 BTC 포지션</b>\n"
+                f"   롱: {long_count}명 ({long_pct:.1f}%)  "
+                f"숏: {short_count}명 ({short_pct:.1f}%)\n"
+                f"   총 포지션 규모: ${total_val/1e6:.1f}M\n"
+                f"   {sentiment}")
     except Exception as e:
-        log.error(f"시장 지수 오류: {e}")
-        return "🌍 미국 시장: 조회 실패"
+        log.error(f"HL 고래 오류: {e}")
+        return "🐋 HL 고래 포지션: 조회 실패"
 
 # ==========================================
 # 6. 오늘의 주요 경제 일정
 # ==========================================
 def get_schedule_notice():
-    weekday  = datetime.now(KST).weekday()
-    notices  = []
+    weekday = datetime.now(KST).weekday()
+    notices = []
     if weekday == 1:
         notices.append("📋 CPI 발표 가능성 — 변동성 주의")
     if weekday == 2:
@@ -185,7 +218,7 @@ def send_daily_report():
         get_fear_greed(),
         get_funding_rate(),
         get_dominance(),
-        get_market_index(),
+        get_hl_whale_ratio(),
         get_schedule_notice(),
     ]
     msg = (
@@ -230,7 +263,14 @@ def check_funding_alert():
 # 스케줄러
 # ==========================================
 def run_scheduler():
-    schedule.every().day.at("00:00").do(send_daily_report)  # UTC 00:00 = KST 09:00
+    schedule.every().day.at("15:00").do(send_daily_report)  # KST 00:00
+    schedule.every().day.at("18:00").do(send_daily_report)  # KST 03:00
+    schedule.every().day.at("21:00").do(send_daily_report)  # KST 06:00
+    schedule.every().day.at("00:00").do(send_daily_report)  # KST 09:00
+    schedule.every().day.at("03:00").do(send_daily_report)  # KST 12:00
+    schedule.every().day.at("06:00").do(send_daily_report)  # KST 15:00
+    schedule.every().day.at("09:00").do(send_daily_report)  # KST 18:00
+    schedule.every().day.at("12:00").do(send_daily_report)  # KST 21:00
     schedule.every(8).hours.do(check_funding_alert)
     log.info("스케줄러 시작!")
     while True:
