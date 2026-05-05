@@ -142,7 +142,45 @@ def get_hl_whale_ratio():
         return "🐋 상위 트레이더 롱/숏 비율: 조회 실패"
 
 # ==========================================
-# 5. BTC 도미넌스 (CoinLore)
+# 5. BTC 미결제약정 (Binance)
+# ==========================================
+def get_open_interest():
+    try:
+        r2    = requests.get(
+            "https://fapi.binance.com/futures/data/openInterestHist",
+            params={"symbol": "BTCUSDT", "period": "5m", "limit": 2},
+            timeout=10
+        )
+        hist    = r2.json()
+        oi_now  = float(hist[-1]["sumOpenInterest"])
+        oi_prev = float(hist[-2]["sumOpenInterest"])
+        chg_pct = (oi_now - oi_prev) / oi_prev * 100
+        sign    = "+" if chg_pct >= 0 else ""
+
+        r3    = requests.get("https://fapi.binance.com/fapi/v1/ticker/price?symbol=BTCUSDT", timeout=10)
+        price = float(r3.json()["price"])
+        oi_usd = oi_now * price / 1e9
+
+        if chg_pct >= 2:
+            judge = "🔴 급증 — 추세 과열 주의"
+        elif chg_pct >= 0.5:
+            judge = "🟠 증가 — 추세 강화 중"
+        elif chg_pct >= -0.5:
+            judge = "🟡 보합 — 방향성 대기"
+        elif chg_pct >= -2:
+            judge = "🟢 감소 — 추세 약화"
+        else:
+            judge = "🔵 급감 — 포지션 청산 주의"
+
+        return (f"📌 <b>BTC 미결제약정 (바이낸스)</b>: ${oi_usd:.2f}B\n"
+                f"   5분 변화: {sign}{chg_pct:.2f}%\n"
+                f"   {judge}")
+    except Exception as e:
+        log.error(f"미결제약정 오류: {e}")
+        return "📌 BTC 미결제약정: 조회 실패"
+
+# ==========================================
+# 6. BTC 도미넌스 (CoinLore)
 # ==========================================
 def get_dominance():
     try:
@@ -171,6 +209,7 @@ def send_daily_report():
         get_fear_greed(),
         get_funding_rate(),
         get_hl_whale_ratio(),
+        get_open_interest(),
         get_dominance(),
     ]
     msg = (
@@ -212,17 +251,9 @@ def check_funding_alert():
         log.error(f"펀딩비 체크 오류: {e}")
 
 # ==========================================
-# 스케줄러 (3시간마다 KST 기준)
+# 스케줄러 (Cron-job.org 사용으로 백업용)
 # ==========================================
 def run_scheduler():
-    schedule.every().day.at("15:00").do(send_daily_report)  # KST 00:00
-    schedule.every().day.at("18:00").do(send_daily_report)  # KST 03:00
-    schedule.every().day.at("21:00").do(send_daily_report)  # KST 06:00
-    schedule.every().day.at("00:00").do(send_daily_report)  # KST 09:00
-    schedule.every().day.at("03:00").do(send_daily_report)  # KST 12:00
-    schedule.every().day.at("06:00").do(send_daily_report)  # KST 15:00
-    schedule.every().day.at("09:00").do(send_daily_report)  # KST 18:00
-    schedule.every().day.at("12:00").do(send_daily_report)  # KST 21:00
     schedule.every(8).hours.do(check_funding_alert)
     log.info("스케줄러 시작!")
     while True:
