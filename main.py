@@ -110,36 +110,16 @@ def get_funding_rate():
         return "💰 펀딩비: 조회 실패"
 
 # ==========================================
-# 4. BTC 도미넌스 (CoinLore)
-# ==========================================
-def get_dominance():
-    try:
-        r   = requests.get("https://api.coinlore.net/api/global/", timeout=10)
-        dom = float(r.json()[0]["btc_d"])
-        if dom >= 60:
-            hint = "→ 알트 약세 구간"
-        elif dom >= 55:
-            hint = "→ 알트 중립 구간"
-        else:
-            hint = "→ 알트 강세 가능성"
-        return (f"👑 <b>BTC 도미넌스</b>: {dom:.1f}%\n"
-                f"   {hint}")
-    except Exception as e:
-        log.error(f"도미넌스 오류: {e}")
-        return "👑 BTC 도미넌스: 조회 실패"
-
-# ==========================================
-# 5. 하이퍼리퀴드 상위 100명 롱/숏 비율
+# 4. 바이낸스 상위 트레이더 롱/숏 비율
 # ==========================================
 def get_hl_whale_ratio():
     try:
-        # 바이낸스 상위 트레이더 롱/숏 비율 (포지션 기준)
         r = requests.get(
             "https://fapi.binance.com/futures/data/topLongShortPositionRatio",
             params={"symbol": "BTCUSDT", "period": "1h", "limit": 1},
             timeout=10
         )
-        data = r.json()[0]
+        data      = r.json()[0]
         long_pct  = float(data["longAccount"]) * 100
         short_pct = float(data["shortAccount"]) * 100
 
@@ -162,6 +142,25 @@ def get_hl_whale_ratio():
         return "🐋 상위 트레이더 롱/숏 비율: 조회 실패"
 
 # ==========================================
+# 5. BTC 도미넌스 (CoinLore)
+# ==========================================
+def get_dominance():
+    try:
+        r   = requests.get("https://api.coinlore.net/api/global/", timeout=10)
+        dom = float(r.json()[0]["btc_d"])
+        if dom >= 60:
+            hint = "→ 비트코인 강세 구간"
+        elif dom >= 55:
+            hint = "→ 비트코인 중립 구간"
+        else:
+            hint = "→ 비트코인 약세 구간"
+        return (f"👑 <b>BTC 도미넌스</b>: {dom:.1f}%\n"
+                f"   {hint}")
+    except Exception as e:
+        log.error(f"도미넌스 오류: {e}")
+        return "👑 BTC 도미넌스: 조회 실패"
+
+# ==========================================
 # 일일 리포트 통합 발송
 # ==========================================
 def send_daily_report():
@@ -171,8 +170,8 @@ def send_daily_report():
         get_btc_price(),
         get_fear_greed(),
         get_funding_rate(),
-        get_dominance(),
         get_hl_whale_ratio(),
+        get_dominance(),
     ]
     msg = (
         f"📊 <b>슈엡 X 비트코인 시그널 2.0</b>\n"
