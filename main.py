@@ -133,14 +133,25 @@ def get_dominance():
 # ==========================================
 def get_hl_whale_ratio():
     try:
-        # 하이퍼리퀴드 리더보드 상위 100명 가져오기
         url  = "https://api.hyperliquid.xyz/info"
         body = {"type": "leaderboard"}
-        r    = requests.post(url, json=body, timeout=15)
+        headers = {"Content-Type": "application/json"}
+        r = requests.post(url, json=body, headers=headers, timeout=15)
+
+        if r.status_code != 200:
+            log.error(f"HL API 오류: {r.status_code} {r.text[:100]}")
+            return "🐋 하이퍼리퀴드 상위 100명 롱/숏 비율: 조회 실패"
+
         data = r.json()
 
-        # 상위 100명 추출
-        rows = data.get("leaderboardRows", [])[:100]
+        # leaderboardRows 또는 리스트 형태 처리
+        rows = []
+        if isinstance(data, dict):
+            rows = data.get("leaderboardRows", [])
+        elif isinstance(data, list):
+            rows = data
+
+        rows = rows[:100]
 
         long_count  = 0
         short_count = 0
@@ -148,14 +159,20 @@ def get_hl_whale_ratio():
         short_value = 0.0
 
         for row in rows:
-            positions = row.get("positions", [])
+            # 각 트레이더의 포지션 파싱
+            positions = []
+            if isinstance(row, dict):
+                positions = row.get("positions", row.get("openPositions", []))
+
             for pos in positions:
-                coin = pos.get("coin", "")
+                if not isinstance(pos, dict):
+                    continue
+                coin = pos.get("coin", pos.get("asset", ""))
                 if coin != "BTC":
                     continue
-                szi = float(pos.get("szi", 0))
-                px  = float(pos.get("entryPx", 0))
-                val = abs(szi * px)
+                szi = float(pos.get("szi", pos.get("size", pos.get("positionAmt", 0))))
+                px  = float(pos.get("entryPx", pos.get("entryPrice", pos.get("markPrice", 0))))
+                val = abs(szi) * px if px > 0 else abs(szi)
                 if szi > 0:
                     long_count  += 1
                     long_value  += val
@@ -165,7 +182,7 @@ def get_hl_whale_ratio():
 
         total = long_count + short_count
         if total == 0:
-            return "🐋 <b>HL 고래 BTC 포지션</b>: 데이터 없음"
+            return "🐋 <b>하이퍼리퀴드 상위 100명 롱/숏 비율</b>: BTC 포지션 없음"
 
         long_pct  = long_count  / total * 100
         short_pct = short_count / total * 100
@@ -182,30 +199,14 @@ def get_hl_whale_ratio():
         else:
             sentiment = "🟡 균형 — 방향성 불명확"
 
-        return (f"🐋 <b>HL 상위 100명 BTC 포지션</b>\n"
+        return (f"🐋 <b>하이퍼리퀴드 상위 100명 롱/숏 비율</b>\n"
                 f"   롱: {long_count}명 ({long_pct:.1f}%)  "
                 f"숏: {short_count}명 ({short_pct:.1f}%)\n"
                 f"   총 포지션 규모: ${total_val/1e6:.1f}M\n"
                 f"   {sentiment}")
     except Exception as e:
         log.error(f"HL 고래 오류: {e}")
-        return "🐋 HL 고래 포지션: 조회 실패"
-
-# ==========================================
-# 6. 오늘의 주요 경제 일정
-# ==========================================
-def get_schedule_notice():
-    weekday = datetime.now(KST).weekday()
-    notices = []
-    if weekday == 1:
-        notices.append("📋 CPI 발표 가능성 — 변동성 주의")
-    if weekday == 2:
-        notices.append("📋 FOMC 의사록 발표 가능 — 변동성 주의")
-    if weekday == 3:
-        notices.append("📋 신규 실업수당 청구건수 발표일")
-    if not notices:
-        return "📅 <b>오늘 주요 일정</b>: 특이사항 없음"
-    return "📅 <b>오늘 주요 일정</b>\n" + "\n".join(notices)
+        return "🐋 하이퍼리퀴드 상위 100명 롱/숏 비율: 조회 실패"
 
 # ==========================================
 # 일일 리포트 통합 발송
@@ -219,7 +220,6 @@ def send_daily_report():
         get_funding_rate(),
         get_dominance(),
         get_hl_whale_ratio(),
-        get_schedule_notice(),
     ]
     msg = (
         f"📊 <b>슈엡 X 비트코인 시그널 2.0</b>\n"
@@ -260,7 +260,7 @@ def check_funding_alert():
         log.error(f"펀딩비 체크 오류: {e}")
 
 # ==========================================
-# 스케줄러
+# 스케줄러 (3시간마다 KST 기준)
 # ==========================================
 def run_scheduler():
     schedule.every().day.at("15:00").do(send_daily_report)  # KST 00:00
