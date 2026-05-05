@@ -133,62 +133,15 @@ def get_dominance():
 # ==========================================
 def get_hl_whale_ratio():
     try:
-        url  = "https://api.hyperliquid.xyz/info"
-        headers = {"Content-Type": "application/json"}
-
-        # 정확한 leaderboard 요청 형식
-        body = {
-            "type": "leaderboard",
-            "req": {
-                "timeWindow": "day"
-            }
-        }
-        r = requests.post(url, json=body, headers=headers, timeout=15)
-
-        if r.status_code != 200:
-            log.error(f"HL API 오류: {r.status_code} {r.text[:100]}")
-            return "🐋 하이퍼리퀴드 상위 100명 롱/숏 비율: 조회 실패"
-
-        data = r.json()
-        rows = []
-        if isinstance(data, dict):
-            rows = data.get("leaderboardRows", [])
-        elif isinstance(data, list):
-            rows = data
-        rows = rows[:100]
-
-        long_count  = 0
-        short_count = 0
-        long_value  = 0.0
-        short_value = 0.0
-
-        for row in rows:
-            positions = []
-            if isinstance(row, dict):
-                positions = row.get("positions", row.get("openPositions", []))
-            for pos in positions:
-                if not isinstance(pos, dict):
-                    continue
-                coin = pos.get("coin", pos.get("asset", ""))
-                if coin != "BTC":
-                    continue
-                szi = float(pos.get("szi", pos.get("size", 0)))
-                px  = float(pos.get("entryPx", pos.get("entryPrice", 0)))
-                val = abs(szi) * px if px > 0 else abs(szi)
-                if szi > 0:
-                    long_count  += 1
-                    long_value  += val
-                elif szi < 0:
-                    short_count += 1
-                    short_value += val
-
-        total = long_count + short_count
-        if total == 0:
-            return "🐋 <b>하이퍼리퀴드 상위 100명 롱/숏 비율</b>: BTC 포지션 없음"
-
-        long_pct  = long_count  / total * 100
-        short_pct = short_count / total * 100
-        total_val = long_value + short_value
+        # 바이낸스 상위 트레이더 롱/숏 비율 (포지션 기준)
+        r = requests.get(
+            "https://fapi.binance.com/futures/data/topLongShortPositionRatio",
+            params={"symbol": "BTCUSDT", "period": "1h", "limit": 1},
+            timeout=10
+        )
+        data = r.json()[0]
+        long_pct  = float(data["longAccount"]) * 100
+        short_pct = float(data["shortAccount"]) * 100
 
         if long_pct >= 65:
             sentiment = "🔴 롱 쏠림 — 역추세 주의"
@@ -201,14 +154,12 @@ def get_hl_whale_ratio():
         else:
             sentiment = "🟡 균형 — 방향성 불명확"
 
-        return (f"🐋 <b>하이퍼리퀴드 상위 100명 롱/숏 비율</b>\n"
-                f"   롱: {long_count}명 ({long_pct:.1f}%)  "
-                f"숏: {short_count}명 ({short_pct:.1f}%)\n"
-                f"   총 포지션 규모: ${total_val/1e6:.1f}M\n"
+        return (f"🐋 <b>바이낸스 상위 트레이더 롱/숏 비율</b>\n"
+                f"   롱: {long_pct:.1f}%  숏: {short_pct:.1f}%\n"
                 f"   {sentiment}")
     except Exception as e:
-        log.error(f"HL 고래 오류: {e}")
-        return "🐋 하이퍼리퀴드 상위 100명 롱/숏 비율: 조회 실패"
+        log.error(f"롱숏비율 오류: {e}")
+        return "🐋 상위 트레이더 롱/숏 비율: 조회 실패"
 
 # ==========================================
 # 일일 리포트 통합 발송
