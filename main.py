@@ -134,8 +134,15 @@ def get_dominance():
 def get_hl_whale_ratio():
     try:
         url  = "https://api.hyperliquid.xyz/info"
-        body = {"type": "leaderboard"}
         headers = {"Content-Type": "application/json"}
+
+        # 정확한 leaderboard 요청 형식
+        body = {
+            "type": "leaderboard",
+            "req": {
+                "timeWindow": "day"
+            }
+        }
         r = requests.post(url, json=body, headers=headers, timeout=15)
 
         if r.status_code != 200:
@@ -143,14 +150,11 @@ def get_hl_whale_ratio():
             return "🐋 하이퍼리퀴드 상위 100명 롱/숏 비율: 조회 실패"
 
         data = r.json()
-
-        # leaderboardRows 또는 리스트 형태 처리
         rows = []
         if isinstance(data, dict):
             rows = data.get("leaderboardRows", [])
         elif isinstance(data, list):
             rows = data
-
         rows = rows[:100]
 
         long_count  = 0
@@ -159,19 +163,17 @@ def get_hl_whale_ratio():
         short_value = 0.0
 
         for row in rows:
-            # 각 트레이더의 포지션 파싱
             positions = []
             if isinstance(row, dict):
                 positions = row.get("positions", row.get("openPositions", []))
-
             for pos in positions:
                 if not isinstance(pos, dict):
                     continue
                 coin = pos.get("coin", pos.get("asset", ""))
                 if coin != "BTC":
                     continue
-                szi = float(pos.get("szi", pos.get("size", pos.get("positionAmt", 0))))
-                px  = float(pos.get("entryPx", pos.get("entryPrice", pos.get("markPrice", 0))))
+                szi = float(pos.get("szi", pos.get("size", 0)))
+                px  = float(pos.get("entryPx", pos.get("entryPrice", 0)))
                 val = abs(szi) * px if px > 0 else abs(szi)
                 if szi > 0:
                     long_count  += 1
