@@ -1,6 +1,8 @@
 """
 슈엡 X 비트코인 시그널 2.0
 텔레그램 채널 자동 정보 발송 서버
+- 신호방: 트레이딩뷰 신호만
+- 정보방: 비트코인 시황 리포트만
 """
 from flask import Flask, request, jsonify
 import requests
@@ -15,7 +17,11 @@ import pytz
 
 # ===== 설정 =====
 BOT_TOKEN  = os.environ.get("BOT_TOKEN",  "8257197393:AAGmbYncgT0eGNQ-4vX7dI8A2EMbQEMhyVA")
-CHANNEL_ID = os.environ.get("CHANNEL_ID", "-1003953608688")
+
+# 채널 분리
+SIGNAL_CHANNEL_ID = os.environ.get("SIGNAL_CHANNEL_ID", "-1003953608688")  # 신호 전용
+INFO_CHANNEL_ID   = os.environ.get("INFO_CHANNEL_ID",   "-1003913017251")  # 정보 전용
+
 SECRET_KEY = os.environ.get("SECRET_KEY", "suweb2024")
 PORT       = int(os.environ.get("PORT", 5000))
 KST        = pytz.timezone("Asia/Seoul")
@@ -28,9 +34,10 @@ log = logging.getLogger(__name__)
 def now_kst():
     return datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
 
-def send_telegram(msg: str) -> bool:
+def send_telegram(msg: str, channel_id: str) -> bool:
+    """텔레그램 메시지 발송 (채널 ID 지정)"""
     url  = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    data = {"chat_id": CHANNEL_ID, "text": msg, "parse_mode": "HTML"}
+    data = {"chat_id": channel_id, "text": msg, "parse_mode": "HTML"}
     try:
         r = requests.post(url, data=data, timeout=10)
         return r.status_code == 200
@@ -199,10 +206,10 @@ def get_dominance():
         return "👑 BTC 도미넌스: 조회 실패"
 
 # ==========================================
-# 일일 리포트 통합 발송
+# 일일 리포트 통합 발송 (정보방 전용)
 # ==========================================
 def send_daily_report():
-    log.info("일일 리포트 발송 시작...")
+    log.info("일일 리포트 발송 시작 (정보방)...")
     now = datetime.now(KST).strftime("%Y년 %m월 %d일 %H:%M")
     sections = [
         get_btc_price(),
@@ -213,7 +220,7 @@ def send_daily_report():
         get_dominance(),
     ]
     msg = (
-        f"📊 <b>슈엡 X 비트코인 시그널 2.0</b>\n"
+        f"📊 <b>슈엡 X 비트코인 시황 리포트</b>\n"
         f"━━━━━━━━━━━━━━━━\n"
         f"🕘 {now} (KST)\n"
         f"━━━━━━━━━━━━━━━━\n\n"
@@ -221,11 +228,11 @@ def send_daily_report():
         "\n\n━━━━━━━━━━━━━━━━\n"
         "⚠ 본 정보는 참고용이며 투자 결정의 책임은 본인에게 있습니다."
     )
-    success = send_telegram(msg)
+    success = send_telegram(msg, INFO_CHANNEL_ID)
     log.info(f"일일 리포트 발송 {'성공' if success else '실패'}")
 
 # ==========================================
-# 펀딩비 극단 경고
+# 펀딩비 극단 경고 (정보방 전용)
 # ==========================================
 def check_funding_alert():
     try:
@@ -238,7 +245,7 @@ def check_funding_alert():
                    f"🔴 롱 극단 과열 상태\n"
                    f"숏 포지션이 유리할 수 있습니다.\n"
                    f"━━━━━━━━━━━━━━━━")
-            send_telegram(msg)
+            send_telegram(msg, INFO_CHANNEL_ID)
         elif rate <= -0.05:
             msg = (f"🚨 <b>펀딩비 경고!</b>\n"
                    f"━━━━━━━━━━━━━━━━\n"
@@ -246,12 +253,12 @@ def check_funding_alert():
                    f"🔵 숏 극단 과열 상태\n"
                    f"롱 포지션이 유리할 수 있습니다.\n"
                    f"━━━━━━━━━━━━━━━━")
-            send_telegram(msg)
+            send_telegram(msg, INFO_CHANNEL_ID)
     except Exception as e:
         log.error(f"펀딩비 체크 오류: {e}")
 
 # ==========================================
-# 스케줄러 (Cron-job.org 사용으로 백업용)
+# 스케줄러 (백업용)
 # ==========================================
 def run_scheduler():
     schedule.every(8).hours.do(check_funding_alert)
@@ -265,6 +272,7 @@ def run_scheduler():
 # ==========================================
 @app.route("/webhook/<key>", methods=["POST"])
 def webhook(key):
+    """트레이딩뷰 신호 수신 → 신호방으로 발송"""
     if key != SECRET_KEY:
         return jsonify({"status": "error", "message": "unauthorized"}), 401
     try:
@@ -276,7 +284,10 @@ def webhook(key):
             msg = raw
         if not msg:
             return jsonify({"status": "error"}), 400
-        success = send_telegram(msg)
+        
+        # 신호방으로 발송
+        success = send_telegram(msg, SIGNAL_CHANNEL_ID)
+        log.info(f"신호방 발송 {'성공' if success else '실패'}: {msg[:50]}...")
         return (jsonify({"status": "ok"}), 200) if success else (jsonify({"status": "error"}), 500)
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -287,20 +298,35 @@ def health():
 
 @app.route("/test", methods=["GET"])
 def test():
+    """신호방 테스트"""
     msg = (f"✅ 슈엡 X 비트코인 시그널 2.0\n"
            f"━━━━━━━━━━━━━━━━\n"
-           f"웹훅 서버 연결 테스트\n"
+           f"신호방 연결 테스트\n"
            f"서버 시간: {now_kst()} (KST)\n"
            f"상태: 정상 작동 중 🟢")
-    success = send_telegram(msg)
+    success = send_telegram(msg, SIGNAL_CHANNEL_ID)
+    return (jsonify({"status": "ok"}), 200) if success else (jsonify({"status": "error"}), 500)
+
+@app.route("/test-info", methods=["GET"])
+def test_info():
+    """정보방 테스트"""
+    msg = (f"✅ 슈엡 X 비트코인 정보방\n"
+           f"━━━━━━━━━━━━━━━━\n"
+           f"정보방 연결 테스트\n"
+           f"서버 시간: {now_kst()} (KST)\n"
+           f"상태: 정상 작동 중 🟢")
+    success = send_telegram(msg, INFO_CHANNEL_ID)
     return (jsonify({"status": "ok"}), 200) if success else (jsonify({"status": "error"}), 500)
 
 @app.route("/report", methods=["GET"])
 def manual_report():
+    """정보방 리포트 수동 발송"""
     threading.Thread(target=send_daily_report, daemon=True).start()
-    return jsonify({"status": "ok", "message": "리포트 발송 시작"}), 200
+    return jsonify({"status": "ok", "message": "정보방 리포트 발송 시작"}), 200
 
 if __name__ == "__main__":
     threading.Thread(target=run_scheduler, daemon=True).start()
     log.info(f"서버 시작 — 포트: {PORT}")
+    log.info(f"신호방: {SIGNAL_CHANNEL_ID}")
+    log.info(f"정보방: {INFO_CHANNEL_ID}")
     app.run(host="0.0.0.0", port=PORT, debug=False)
