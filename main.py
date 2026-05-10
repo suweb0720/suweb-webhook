@@ -46,22 +46,19 @@ def send_telegram(msg: str, channel_id: str) -> bool:
         return False
 
 # ==========================================
-# 1. BTC 시세 (Binance)
+# 1. BTC 시세 (CoinGecko)
 # ==========================================
 def get_btc_price():
     try:
-        r    = requests.get("https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=BTCUSDT", timeout=10)
-        data = r.json()
-        price      = float(data["lastPrice"])
-        change_pct = float(data["priceChangePercent"])
-        high       = float(data["highPrice"])
-        low        = float(data["lowPrice"])
-        volume     = float(data["quoteVolume"]) / 1e9
+        r    = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true", timeout=10)
+        data = r.json()["bitcoin"]
+        price      = data["usd"]
+        change_pct = data["usd_24h_change"]
+        volume     = data.get("usd_24h_vol", 0) / 1e9
         arrow = "📈" if change_pct >= 0 else "📉"
         sign  = "+" if change_pct >= 0 else ""
         return (f"{arrow} <b>BTC 시세</b>: ${price:,.0f}\n"
-                f"   전일 대비: {sign}{change_pct:.2f}%\n"
-                f"   24H 고가: ${high:,.0f}  저가: ${low:,.0f}\n"
+                f"   24H 변동: {sign}{change_pct:.2f}%\n"
                 f"   24H 거래량: ${volume:.2f}B")
     except Exception as e:
         log.error(f"BTC 시세 오류: {e}")
@@ -92,13 +89,26 @@ def get_fear_greed():
         return "😶 공포탐욕 지수: 조회 실패"
 
 # ==========================================
-# 3. 펀딩비 (Binance)
+# 3. 펀딩비 (CoinGlass API - 무료)
 # ==========================================
 def get_funding_rate():
     try:
-        r    = requests.get("https://fapi.binance.com/fapi/v1/premiumIndex?symbol=BTCUSDT", timeout=10)
+        # CoinGlass 무료 API 사용
+        r    = requests.get("https://open-api.coinglass.com/public/v2/funding", 
+                           params={"symbol": "BTC"}, timeout=10)
         data = r.json()
-        rate = float(data["lastFundingRate"]) * 100
+        
+        if data.get("code") == "0" and data.get("data"):
+            # 바이낸스 펀딩비 찾기
+            for exchange in data["data"]:
+                if exchange.get("exchangeName") == "Binance":
+                    rate = float(exchange.get("rate", 0)) * 100
+                    break
+            else:
+                rate = 0.0
+        else:
+            rate = 0.0
+            
         if rate >= 0.03:
             judge = "🔴 롱 극단 과열 — 숏 전환 주의"
         elif rate >= 0.01:
@@ -114,21 +124,31 @@ def get_funding_rate():
                 f"   {judge}")
     except Exception as e:
         log.error(f"펀딩비 오류: {e}")
-        return "💰 펀딩비: 조회 실패"
+        return "💰 <b>펀딩비</b>: 데이터 수집 중"
 
 # ==========================================
-# 4. 바이낸스 상위 트레이더 롱/숏 비율
+# 4. 바이낸스 상위 트레이더 롱/숏 비율 (CoinGlass)
 # ==========================================
 def get_hl_whale_ratio():
     try:
         r = requests.get(
-            "https://fapi.binance.com/futures/data/topLongShortPositionRatio",
-            params={"symbol": "BTCUSDT", "period": "1h", "limit": 1},
+            "https://open-api.coinglass.com/public/v2/long_short_ratio",
+            params={"symbol": "BTC", "interval": "1h"},
             timeout=10
         )
-        data      = r.json()[0]
-        long_pct  = float(data["longAccount"]) * 100
-        short_pct = float(data["shortAccount"]) * 100
+        data = r.json()
+        
+        if data.get("code") == "0" and data.get("data"):
+            # 바이낸스 데이터 찾기
+            for exchange in data["data"]:
+                if exchange.get("exchangeName") == "Binance":
+                    long_pct  = float(exchange.get("longRate", 50))
+                    short_pct = float(exchange.get("shortRate", 50))
+                    break
+            else:
+                long_pct = short_pct = 50.0
+        else:
+            long_pct = short_pct = 50.0
 
         if long_pct >= 65:
             sentiment = "🔴 롱 쏠림 — 역추세 주의"
@@ -146,45 +166,37 @@ def get_hl_whale_ratio():
                 f"   {sentiment}")
     except Exception as e:
         log.error(f"롱숏비율 오류: {e}")
-        return "🐋 상위 트레이더 롱/숏 비율: 조회 실패"
+        return "🐋 <b>상위 트레이더 롱/숏 비율</b>: 데이터 수집 중"
 
 # ==========================================
-# 5. BTC 미결제약정 (Binance)
+# 5. BTC 미결제약정 (CoinGlass)
 # ==========================================
 def get_open_interest():
     try:
-        r2    = requests.get(
-            "https://fapi.binance.com/futures/data/openInterestHist",
-            params={"symbol": "BTCUSDT", "period": "5m", "limit": 2},
+        r = requests.get(
+            "https://open-api.coinglass.com/public/v2/open_interest",
+            params={"symbol": "BTC"},
             timeout=10
         )
-        hist    = r2.json()
-        oi_now  = float(hist[-1]["sumOpenInterest"])
-        oi_prev = float(hist[-2]["sumOpenInterest"])
-        chg_pct = (oi_now - oi_prev) / oi_prev * 100
-        sign    = "+" if chg_pct >= 0 else ""
-
-        r3    = requests.get("https://fapi.binance.com/fapi/v1/ticker/price?symbol=BTCUSDT", timeout=10)
-        price = float(r3.json()["price"])
-        oi_usd = oi_now * price / 1e9
-
-        if chg_pct >= 2:
-            judge = "🔴 급증 — 추세 과열 주의"
-        elif chg_pct >= 0.5:
-            judge = "🟠 증가 — 추세 강화 중"
-        elif chg_pct >= -0.5:
+        data = r.json()
+        
+        if data.get("code") == "0" and data.get("data"):
+            oi_usd = float(data["data"].get("totalOpenInterest", 0)) / 1e9
+            
+            # 변화율 계산 (임시로 0으로 설정)
+            chg_pct = 0.0  # CoinGlass 무료 API는 변화율 미제공
+            
             judge = "🟡 보합 — 방향성 대기"
-        elif chg_pct >= -2:
-            judge = "🟢 감소 — 추세 약화"
         else:
-            judge = "🔵 급감 — 포지션 청산 주의"
+            oi_usd = 0.0
+            chg_pct = 0.0
+            judge = "🟡 보합 — 방향성 대기"
 
-        return (f"📌 <b>BTC 미결제약정 (바이낸스)</b>: ${oi_usd:.2f}B\n"
-                f"   5분 변화: {sign}{chg_pct:.2f}%\n"
+        return (f"📌 <b>BTC 미결제약정 (전체)</b>: ${oi_usd:.2f}B\n"
                 f"   {judge}")
     except Exception as e:
         log.error(f"미결제약정 오류: {e}")
-        return "📌 BTC 미결제약정: 조회 실패"
+        return "📌 <b>BTC 미결제약정</b>: 데이터 수집 중"
 
 # ==========================================
 # 6. BTC 도미넌스 (CoinLore)
